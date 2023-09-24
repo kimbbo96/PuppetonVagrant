@@ -1,2 +1,2 @@
 # PuppetonVagrant
-Puppet tests on Vagrant machines environment
+Puppet tests on Vagrant machines environment!
