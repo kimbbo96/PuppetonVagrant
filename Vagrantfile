@@ -1,47 +1,24 @@
 Vagrant.configure("2") do |config|
 
 
-  #lista di macchine che verranno create:
+  #list of machines that will be created:
   
   servers=[
+  
     
-    #sul nodo puppet eseguo update e installo pacchetto puppet
-    #imposto la share condivisa con il sistema host (la mia macchina Windows)
-    {
-      :hostname => "rocky1.puppet.vm",
-	    :box => "generic/rocky8",
-      :private_address => '192.168.56.10', #rete privata per far funzionare la comunicazione tra le macchine
-      :shared_dir_host => "./data",
-      :shared_dir_guest => "/home/vagrant/data",
-      :script => <<-SCRIPT 
-      echo I am provisioning...
-      date > /etc/vagrant_provisioned_at && sudo yum update && 
-      sudo dnf -y install https://yum.puppet.com/puppet-release-el-8.noarch.rpm && sudo dnf update -y && sudo dnf install puppet-agent -y &&
-      sudo systemctl enable --now puppet && echo \"[main]
-      ssldir = /var/lib/puppet/ssl
-      vardir = /var/lib/puppet
-      cadir = /var/lib/puppet/ssl/ca
-      dns_alt_names = puppet
-      [agent]
-      server=puppetmaster-ipadress
-      ca_server=puppetmaster-ipadress\"  >> /etc/puppetlabs/puppet/puppet.conf
-      SCRIPT
-    },
-    
-    # sul master puppet eseguo update e installo pacchetto puppet. per far funzionare la comunicazione tra le macchine su utilizza una rete privata. 
-    # sempre per far funzionare la comunicazione, sul master si disattiva e stoppa il servizio firewalld
-    # installo puppetserver e puppet
-    # eseguo yum update
-    # cambio della memoria allocata al puppet server, di default sono 2 giga, sono impostati 512 mega, riduciamo per evitare l'out of memory
-    # avvio il servizio puppetserver
-    # abilito il servizio puppetserver
-    # inserisco l'ip del server con associato 'puppet' nel file hosts
+    # on the puppet master, execute updates and install puppetserver package. To make communication between machines functioning, a private network will be used
+    # to make communication functioning disable and stop firewalld service
+    # change the memory allocated for the puppet server, 2 GB are configured by default, in this case we restrict to 512 MB
+    # start puppetserver service
+    # enable puppetserver service
+    # insert the IP of the server in the file hosts and associate it with 'puppet'
     {
       :hostname => "master2.puppet.vm",
 	    :box => "generic/centos8",
-      :private_address => '192.168.56.11', #rete privata per far funzionare la comunicazione tra le macchine
+      :private_address => '192.168.56.11', #private network
       :shared_dir_host => "./master_code",
       :shared_dir_guest => "/etc/puppetlabs/",
+      :memory => 2048,
       :script => <<-SCRIPT 
       echo I am provisioning...
       date > /etc/vagrant_provisioned_at && sudo yum update -y && 
@@ -53,44 +30,46 @@ Vagrant.configure("2") do |config|
     },
 	
 
+    #generic node without Puppet
   	{
      :hostname => "rocky2.puppet.vm",
-	 :box => "generic/rocky8",  
+	   :box => "generic/rocky8",  
      :script => "",
-     :private_address => '192.168.56.13',
+     :private_address => '192.168.56.13', #private network
      :shared_dir_host => "./data",
-     :shared_dir_guest => "/home/vagrant/data"
+     :shared_dir_guest => "/home/vagrant/data",
+     :memory => 1024
     },
-	
 
-    # per un nodo Puppet, scarico Puppet e installo l'agent
-    # inserisco l'hostname/IP del master in /etc/hosts
+    # for a puppet node, download and install the puppet agent
+    # download and install system updates
+    # insert hostname/IP of master in /etc/hosts
+    # to make communication functioning disable and stop firewalld service
     {
       :hostname => "clientc.puppet.vm",
       :box => "generic/centos8", 
-      :private_address => '192.168.56.14',
+      :private_address => '192.168.56.14', #private network
       :shared_dir_host => "./data",
       :shared_dir_guest => "/home/vagrant/data",
+      :memory => 1024,
       :script => <<-SCRIPT 
-      echo 192.168.56.11 master2.puppet.vm puppet >> /etc/hosts && rpm -Uvh https://yum.puppet.com/puppet6-release-el-8.noarch.rpm &&
-      yum -y install puppet-agent && systemctl stop firewalld.service && systemctl disable firewalld.service
+      sudo yum update -y && 
+      echo 192.168.56.11 master2.puppet.vm puppet >> /etc/hosts && rpm -Uvh https://yum.puppet.com/puppet6-release-el-8.noarch.rpm && 
+      yum -y install puppet-agent && systemctl stop firewalld.service && systemctl disable firewalld.service 
       SCRIPT
      }  
   ]
 
   servers.each do |machine|
     config.vm.define machine[:hostname] do |node|
-        node.vm.box = machine[:box] # imposto sistema operativo
-        node.vm.hostname = machine[:hostname] # imposto hostname
-        #node.vm.network :private_network, ip: machine[:ip]
-        #node.vm.network "forwarded_port", guest: 22, host: machine[:ssh_port], id: "ssh"
-        node.vm.synced_folder machine[:shared_dir_host], machine[:shared_dir_guest] # folder condivisa da dentro a fuori vagrant
+        node.vm.box = machine[:box] # set the operating system
+        node.vm.hostname = machine[:hostname] # set the hostname
+        node.vm.synced_folder machine[:shared_dir_host], machine[:shared_dir_guest] # shared folder for vagrant and host system
         node.vm.provision "file", source: "./copiedfile.txt", destination: "/home/vagrant/copiedfile.txt"
-        #node.vm.network "forwarded_port", guest: 8140, host: 2223, protocol: "tcp"
 
-        #imposto risorse HW della VM - parlando con VirtualBox
+        # set HW resources of VM - talking with VirtualBox
         node.vm.provider :virtualbox do |vb|
-            vb.memory = 1024
+            vb.memory = machine[:memory]
             vb.cpus = 2
             vb.customize ['modifyvm', :id, '--natdnshostresolver1', 'on']            
         end
@@ -98,7 +77,7 @@ Vagrant.configure("2") do |config|
         #configuro comando da lanciare sulla macchina
         node.vm.provision "shell", inline: machine[:script]
 
-        #imposto IP privato
+        #set private IP address
         node.vm.network 'private_network', ip: machine[:private_address]
         ENV['LC_ALL']='en_US.UTF-8'
     end
